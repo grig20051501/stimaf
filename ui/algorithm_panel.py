@@ -1,12 +1,15 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
     QSlider,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -100,12 +103,48 @@ class AlgorithmPanel(QWidget):
         ctrl_layout.addWidget(self.result_label)
 
         layout.addWidget(ctrl_group)
+
+        # ------------------------------------------------------------------
+        # Benchmark group
+        # ------------------------------------------------------------------
+        bench_group = QGroupBox("Бенчмарк")
+        bench_form = QFormLayout(bench_group)
+        bench_form.setSpacing(5)
+
+        self.bench_n_runs = QSpinBox()
+        self.bench_n_runs.setRange(1, 1000)
+        self.bench_n_runs.setValue(10)
+        self.bench_n_runs.setToolTip("Число независимых запусков алгоритма для усреднения")
+
+        self.bench_epsilon = QDoubleSpinBox()
+        self.bench_epsilon.setRange(0.000001, 1.0)
+        self.bench_epsilon.setDecimals(6)
+        self.bench_epsilon.setSingleStep(0.0001)
+        self.bench_epsilon.setValue(0.0001)
+        self.bench_epsilon.setToolTip(
+            "Точность ε: итерация сходимости — первая итерация, "
+            "на которой f* отличается от финального результата не более чем на ε"
+        )
+
+        bench_form.addRow("Запусков:", self.bench_n_runs)
+        bench_form.addRow("Точность ε:", self.bench_epsilon)
+
+        self.bench_run_btn = QPushButton("▶ Запустить бенчмарк")
+        bench_form.addRow(self.bench_run_btn)
+
+        self.bench_progress = QProgressBar()
+        self.bench_progress.setRange(0, 100)
+        self.bench_progress.setValue(0)
+        self.bench_progress.setVisible(False)
+        bench_form.addRow(self.bench_progress)
+
+        layout.addWidget(bench_group)
         layout.addStretch()
 
         self.run_btn.clicked.connect(self.run_requested)
         self.step_btn.clicked.connect(self.step_requested)
         self.reset_btn.clicked.connect(self.reset_requested)
-        # step_back_btn is connected directly in the controller
+        # step_back_btn and bench_run_btn are connected directly in the controller
 
     def _on_algo_changed(self, idx: int):
         self.params_stack.setCurrentIndex(idx)
@@ -137,6 +176,22 @@ class AlgorithmPanel(QWidget):
         if running:
             self.step_back_btn.setEnabled(False)
         self.algo_combo.setEnabled(not running)
+        self.bench_run_btn.setEnabled(not running)
+
+    def set_bench_running(self, running: bool):
+        self.bench_run_btn.setText("⏹ Отмена" if running else "▶ Запустить бенчмарк")
+        self.bench_progress.setVisible(running)
+        if not running:
+            self.bench_progress.setValue(0)
+        self.run_btn.setEnabled(not running)
+        self.step_btn.setEnabled(not running)
+        self.step_back_btn.setEnabled(False)
+        self.reset_btn.setEnabled(not running)
+        self.algo_combo.setEnabled(not running)
+
+    def set_bench_progress(self, done: int, total: int):
+        if total > 0:
+            self.bench_progress.setValue(int(done / total * 100))
 
     def update_y_visibility(self, is_3d: bool):
         self.pso_params.set_y_visible(is_3d)

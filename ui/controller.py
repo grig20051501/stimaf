@@ -4,6 +4,7 @@ from PyQt6.QtCore import QTimer
 
 from core import FunctionParser, Evaluator, FunctionRegistry
 from algorithms import PSO, ACO, ABC
+from benchmark.runner import BenchmarkWorker
 
 
 class Controller:
@@ -25,6 +26,8 @@ class Controller:
         self._state_stack: list = []   # deepcopied algorithm states for step-back
         self._MAX_STACK = 60
 
+        self._bench_worker: BenchmarkWorker = None
+
         self._timer = QTimer()
         self._timer.timeout.connect(self._on_timer_tick)
 
@@ -44,6 +47,7 @@ class Controller:
         self._algo_panel.step_back_btn.clicked.connect(self._on_step_back_clicked)
         self._algo_panel.reset_btn.clicked.connect(self._on_reset_clicked)
         self._algo_panel.speed_slider.valueChanged.connect(self._on_speed_changed)
+        self._algo_panel.bench_run_btn.clicked.connect(self._on_bench_clicked)
 
         self._plot_2d.mouse_coords_changed.connect(self._on_mouse_coords)
 
@@ -354,6 +358,103 @@ class Controller:
 
     def _on_mouse_coords(self, x: float, y: float):
         self._main_window.set_coords(x, y)
+
+    # ------------------------------------------------------------------
+    # Benchmark
+    # ------------------------------------------------------------------
+
+    def _on_bench_clicked(self):
+        if self._bench_worker and self._bench_worker.isRunning():
+            self._bench_worker.cancel()
+            self._algo_panel.set_bench_running(False)
+            self._main_window.set_status("Бенчмарк отменён")
+            return
+
+        func, variables = self._get_target_func()
+        if func is None:
+            self._main_window.show_error("Сначала добавьте функцию.")
+            return
+
+        entries = self._registry.entries
+        func_expr = entries[0].expr_str if entries else '?'
+        algo_name = self._algo_panel.current_algorithm().upper()
+        n_runs = self._algo_panel.bench_n_runs.value()
+        epsilon = self._algo_panel.bench_epsilon.value()
+
+        factory = self._make_algo_factory()
+        if factory is None:
+            return
+
+        self._bench_worker = BenchmarkWorker(
+            factory, n_runs, epsilon, algo_name, func_expr
+        )
+        self._bench_worker.progress.connect(self._on_bench_progress)
+        self._bench_worker.finished.connect(self._on_bench_finished)
+        self._bench_worker.error.connect(self._on_bench_error)
+
+        self._algo_panel.set_bench_running(True)
+        self._main_window.set_status(
+            f"Бенчмарк {algo_name}: запуск 0/{n_runs}…"
+        )
+        self._bench_worker.start()
+
+    def _make_algo_factory(self):
+        """Return a no-arg callable that builds a fresh algorithm instance."""
+        func, variables = self._get_target_func()
+        if func is None:
+            return None
+
+        p = self._get_params()
+        dim = len(variables)
+        bounds = [(p['x_min'], p['x_max'])]
+        if dim == 2:
+            bounds.append((p['y_min'], p['y_max']))
+
+        algo_key = self._algo_panel.current_algorithm()
+
+        if algo_key == 'pso':
+            def factory():
+                return PSO(func, bounds,
+                           n_particles=p['n_particles'], inertia=p['inertia'],
+                           cognitive=p['cognitive'], social=p['social'],
+                           max_iter=p['max_iter'])
+        elif algo_key == 'aco':
+            def factory():
+                return ACO(func, bounds,
+                           n_ants=p['n_ants'], evaporation=p['evaporation'],
+                           alpha=p['alpha'], beta=p['beta'],
+                           grid_resolution=p['grid_resolution'],
+                           max_iter=p['max_iter'])
+        else:
+            def factory():
+                return ABC(func, bounds,
+                           n_bees=p['n_bees'], limit=p['limit'],
+                           max_iter=p['max_iter'])
+
+        return factory
+
+    def _on_bench_progress(self, done: int, total: int):
+        self._algo_panel.set_bench_progress(done, total)
+        self._main_window.set_status(
+            f"Бенчмарк: запуск {done}/{total}…"
+        )
+
+    def _on_bench_finished(self, result):
+        self._algo_panel.set_bench_running(False)
+        self._main_window.benchmark_tab.add_result(result)
+        self._main_window.show_benchmark_tab()
+        ci_str = (f'{result.mean_convergence_iter:.1f}'
+                  if result.mean_convergence_iter is not None else '—')
+        self._main_window.set_status(
+            f"Бенчмарк {result.algo_name} завершён  |  "
+            f"f*={result.mean_best:.6g}  σ={result.std_best:.6g}  "
+            f"ит.сх.={ci_str}  "
+            f"время={result.mean_time * 1000:.1f} мс/запуск"
+        )
+
+    def _on_bench_error(self, msg: str):
+        self._algo_panel.set_bench_running(False)
+        self._main_window.show_error(f"Ошибка бенчмарка:\n{msg}")
 
     # ------------------------------------------------------------------
     # Exports

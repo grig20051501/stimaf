@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -20,6 +21,7 @@ from core import Evaluator, FunctionParser, FunctionRegistry
 from export import CsvExporter, PngExporter
 
 from .algorithm_panel import AlgorithmPanel
+from .benchmark_tab import BenchmarkTab
 from .controller import Controller
 from .function_panel import FunctionPanel
 from .plot_2d import Plot2DWidget
@@ -167,6 +169,39 @@ QListWidget { background: #181825; border: 1px solid #313244; border-radius: 4px
 QListWidget::item { padding: 2px; }
 QListWidget::item:selected { background: #313244; }
 QSplitter::handle { background: #45475a; width: 2px; }
+QTabWidget::pane {
+    border: 1px solid #45475a;
+    background: #1e1e2e;
+}
+QTabBar::tab {
+    background: #313244;
+    color: #cdd6f4;
+    padding: 5px 18px;
+    border: 1px solid #45475a;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    margin-right: 2px;
+}
+QTabBar::tab:selected { background: #1e1e2e; color: #89b4fa; }
+QTabBar::tab:hover:!selected { background: #45475a; }
+QTableWidget {
+    background: #181825;
+    border: 1px solid #313244;
+    gridline-color: #313244;
+    alternate-background-color: #1e1e2e;
+}
+QTableWidget::item { padding: 4px; color: #cdd6f4; }
+QTableWidget::item:selected { background: #313244; }
+QHeaderView::section {
+    background: #313244;
+    color: #89b4fa;
+    padding: 5px 4px;
+    border: none;
+    border-right: 1px solid #45475a;
+    border-bottom: 1px solid #45475a;
+    font-weight: bold;
+}
 """
 
 
@@ -190,13 +225,27 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(3)
 
-        # Left: plot area (2D / 3D stacked)
+        # Left: tab widget  ("График" tab + "Бенчмарк" tab)
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setTabPosition(QTabWidget.TabPosition.North)
+
+        # Tab 0 — plot (2D / 3D stacked)
+        plot_container = QWidget()
+        plot_layout = QVBoxLayout(plot_container)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
         self._plot_stack = QStackedWidget()
         self._plot_2d = Plot2DWidget()
         self._plot_3d = Plot3DWidget()
         self._plot_stack.addWidget(self._plot_2d)  # index 0
         self._plot_stack.addWidget(self._plot_3d)  # index 1
-        splitter.addWidget(self._plot_stack)
+        plot_layout.addWidget(self._plot_stack)
+        self._tab_widget.addTab(plot_container, "График")
+
+        # Tab 1 — benchmark results
+        self.benchmark_tab = BenchmarkTab()
+        self._tab_widget.addTab(self.benchmark_tab, "Бенчмарк")
+
+        splitter.addWidget(self._tab_widget)
 
         # Right: control panel
         right_widget = QWidget()
@@ -269,7 +318,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def switch_plot_mode(self, mode: str):
+        self._tab_widget.setCurrentIndex(0)
         self._plot_stack.setCurrentIndex(0 if mode == "2d" else 1)
+
+    def show_benchmark_tab(self):
+        self._tab_widget.setCurrentIndex(1)
 
     def set_status(self, text: str):
         self._status_label.setText(text)
